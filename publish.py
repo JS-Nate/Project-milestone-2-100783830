@@ -1,54 +1,48 @@
-from google.cloud import pubsub_v1  # pip install google-cloud-pubsub
-import glob  # for searching for JSON file
+from google.cloud import pubsub_v1  # Install using: pip install google-cloud-pubsub
+import glob
 import json
 import os
 import csv
 
-#Search for the JSON service account key
-files = glob.glob("*.json")
-if files:
-    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = files[0]
-else:
-    print("No service account JSON found!")
+# Locate the JSON service account key dynamically
+json_keys = glob.glob("*.json")
+if not json_keys:
+    print("Error: No service account JSON file found.")
     exit()
 
-#Set the project_id with your project ID
-project_id = "project1-448716"
-topic_name = "records"
+os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = json_keys[0]
 
-#Create a publisher and get the topic path for the publisher
-publisher = pubsub_v1.PublisherClient()
-topic_path = publisher.topic_path(project_id, topic_name)
-print(f"Publishing messages to {topic_path}.")
+# Define Google Cloud project and Pub/Sub topic
+PROJECT_ID = "project1-448716"
+TOPIC = "records"
 
-#Path to the CSV file
-file_path = "Labels.csv"
+# Initialize Pub/Sub client and construct topic path
+pub_client = pubsub_v1.PublisherClient()
+topic_full_path = pub_client.topic_path(PROJECT_ID, TOPIC)
+print(f"Publishing to topic: {topic_full_path}")
 
-def convert_value(value):
-    """Convert CSV values to int, float, or keep as string."""
+# CSV file containing data
+CSV_FILE = "Labels.csv"
+
+def parse_value(val):
+    """Attempts to convert a string to int or float where applicable."""
     try:
-        if "." in value:  # If it has a decimal, convert to float
-            return float(value)
-        return int(value)  # Otherwise, convert to int
+        return float(val) if '.' in val else int(val)
     except ValueError:
-        return value  # If conversion fails, return as string
+        return val  # Return as string if conversion fails
 
-with open(file_path, mode='r') as csv_file:
-    reader = csv.DictReader(csv_file)
+with open(CSV_FILE, newline='') as csvfile:
+    csv_reader = csv.DictReader(csvfile)
+    
+    for record in csv_reader:
+        # Convert row values appropriately
+        formatted_record = {key: parse_value(val) for key, val in record.items()}
+        
+        # Serialize and publish message
+        json_msg = json.dumps(formatted_record).encode('utf-8')
+        print("Publishing:", json_msg)
+        
+        future = pub_client.publish(topic_full_path, json_msg)
+        future.result()  # Ensure successful publishing
 
-    for row in reader:
-        # Convert each value dynamically
-        converted_row = {key: convert_value(value) for key, value in row.items()}
-
-        # Serialize the message correctly
-        message = json.dumps(converted_row).encode('utf-8')
-
-        #send the value
-        print("Publishing record:", message)
-        # Publish the message
-        future = publisher.publish(topic_path, message)
-
-        # Ensure publishing is successful
-        future.result()
-
-print("All records have been published.")
+print("All records successfully published.")
